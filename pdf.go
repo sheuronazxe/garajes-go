@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -54,8 +54,8 @@ func generarRecibos(datos []Inquilino, fecha time.Time) error {
 
 	fechaStr := formatMesAnyo(fecha)
 
-	slices.SortFunc(datos, func(a, b Inquilino) int {
-		return strings.Compare(a.Nombre, b.Nombre)
+	sort.Slice(datos, func(i, j int) bool {
+		return strings.Compare(datos[i].Nombre, datos[j].Nombre) < 0
 	})
 
 	totalPaginas := (len(datos) + recibosPorPagina - 1) / recibosPorPagina
