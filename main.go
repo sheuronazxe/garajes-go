@@ -207,6 +207,10 @@ type model struct {
 	rentaInput     textinput.Model
 	editIndex      int
 	
+	// Date selection state
+	dateInput      textinput.Model
+	selectingDate  bool
+	
 	// Data
 	inquilinos     []Inquilino
 }
@@ -258,7 +262,22 @@ func (m *model) setupFormForEdit(idx int) {
 	m.nameInput.Focus()
 }
 
+func (m *model) setupDateSelection() {
+	m.selectingDate = true
+	m.dateInput = textinput.New()
+	m.dateInput.Placeholder = "MM AAAA (ej: 12 2024)"
+	m.dateInput.SetValue(m.fecha.Format("01 2006"))
+	m.dateInput.CharLimit = 20
+	m.dateInput.Width = 30
+	m.dateInput.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00"))
+	m.dateInput.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
+	m.dateInput.Focus()
+}
+
 func (m *model) getCurrentInput() *textinput.Model {
+	if m.selectingDate {
+		return &m.dateInput
+	}
 	switch m.currentField {
 	case FieldNombre:
 		return &m.nameInput
@@ -315,6 +334,29 @@ func (m *model) prevField() {
 }
 
 func (m *model) saveCurrentForm() error {
+	if m.selectingDate {
+		dateStr := strings.TrimSpace(m.dateInput.Value())
+		if dateStr != "" {
+			parts := strings.Fields(dateStr)
+			if len(parts) == 2 {
+				var month, year int
+				fmt.Sscanf(parts[0], "%d", &month)
+				fmt.Sscanf(parts[1], "%d", &year)
+				if month >= 1 && month <= 12 && year >= 2000 && year <= 2100 {
+					m.fecha = time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.Local)
+				} else {
+					return fmt.Errorf("mes inválido (1-12) o año inválido (2000-2100)")
+				}
+			} else {
+				return fmt.Errorf("formato inválido. Use: MM AAAA (ej: 12 2024)")
+			}
+		}
+		m.selectingDate = false
+		m.dateInput.Blur()
+		m.estado = estadoSeleccion
+		return nil
+	}
+	
 	nombre := strings.TrimSpace(m.nameInput.Value())
 	plaza := strings.TrimSpace(m.plazaInput.Value())
 	rentaStr := strings.TrimSpace(m.rentaInput.Value())
@@ -393,6 +435,37 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle date selection mode
+		if m.selectingDate {
+			switch msg.String() {
+			case "ctrl+c", "q":
+				return m, tea.Quit
+			
+			case "esc":
+				// Cancel date selection, use default
+				m.selectingDate = false
+				m.dateInput.Blur()
+				m.estado = estadoSeleccion
+				return m, nil
+			
+			case "enter":
+				// Save date
+				if err := m.saveCurrentForm(); err != nil {
+					m.mensaje = err.Error()
+					m.estado = estadoError
+					m.selectingDate = false
+					m.dateInput.Blur()
+					return m, nil
+				}
+				return m, nil
+			}
+			
+			// Update date input field
+			var cmd tea.Cmd
+			m.dateInput, cmd = m.dateInput.Update(msg)
+			return m, cmd
+		}
+		
 		// Handle form mode keys
 		if m.formMode != FormModeNone {
 			switch msg.String() {
@@ -561,6 +634,16 @@ func (m model) View() string {
 
 	b.WriteString(titleStyle.Render("🏠 Generador de Recibos de Garaje") + "\n\n")
 
+	// Show date selection form
+	if m.selectingDate {
+		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#00FF00")).Render("📅 Seleccionar Fecha") + "\n\n")
+		b.WriteString("Introduce el mes y año (formato: MM AAAA):\n")
+		b.WriteString(inputStyle.Render(m.dateInput.View()) + "\n")
+		b.WriteString(dimStyle.Render(fmt.Sprintf("Ejemplo: 12 2024 para diciembre 2024\n")) + "\n")
+		b.WriteString(helpStyle.Render("[Enter] Confirmar  [Esc] Usar fecha por defecto  [q] Salir") + "\n")
+		return b.String()
+	}
+	
 	// Show form if in add/edit mode
 	if m.formMode == FormModeAdd || m.formMode == FormModeEdit {
 		modeStr := "Añadir"
@@ -611,13 +694,6 @@ func (m model) View() string {
 	}
 
 	switch m.estado {
-	case estadoFecha:
-		b.WriteString("Introduce la fecha (Mes Año) o presiona Enter para usar la fecha por defecto:\n")
-		b.WriteString(dimStyle.Render(fmt.Sprintf("Por defecto: %s)", formatMesAnyo(time.Now()))))
-		b.WriteString("\n\n")
-		b.WriteString(dimStyle.Render("(Esta funcionalidad requiere entrada de texto - usa la versión anterior para esta opción)\n"))
-		b.WriteString("\nPresiona Enter para continuar con la fecha por defecto...")
-
 	case estadoSeleccion:
 		count := len(m.seleccionados)
 		b.WriteString(dateStyle.Render(formatMesAnyo(m.fecha)) + "\n\n")
@@ -707,11 +783,14 @@ func main() {
 	m := model{
 		list:          l,
 		fecha:         defaultDate,
-		estado:        estadoFecha,
+		estado:        estadoSeleccion,
 		seleccionados: make(map[int]bool),
 		itemCount:     len(inquilinos),
 		inquilinos:    inquilinos,
 	}
+	
+	// Initialize date selection
+	m.setupDateSelection()
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
