@@ -775,10 +775,15 @@ func main() {
 		items = append(items, item{index: i, inquilino: inq})
 	}
 
-	l := list.New(items, list.NewDefaultDelegate(), 0, 0)
+	// Crear delegate personalizado con altura explícita
+	d := list.NewDefaultDelegate()
+	d.SetHeight(1)
+	
+	l := list.New(items, d, 40, 10)
 	l.Title = "Inquilinos"
 	l.SetShowStatusBar(true)
 	l.SetFilteringEnabled(true)
+	l.SetShowHelp(true)
 
 	m := model{
 		list:          l,
@@ -787,6 +792,8 @@ func main() {
 		seleccionados: make(map[int]bool),
 		itemCount:     len(inquilinos),
 		inquilinos:    inquilinos,
+		width:         80,
+		height:        24,
 	}
 	
 	// Initialize date selection
